@@ -36,3 +36,7 @@ frontend/node_modules/
 # Ignore build folders
 frontend/build/
 build/
+
+/backend/.env
+/backend/replicate.env
+/backend/seed/*.json
