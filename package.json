@@ -1,0 +1,10 @@
+{
+  "name": "hospital-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "firebase": "^12.5.0",
+    "firebase-admin": "^13.6.0",
+    "node": "^25.2.1"
+  }
+}
