@@ -8,7 +8,7 @@ import {
   browserSessionPersistence,
 } from "firebase/auth";
 import { auth, db } from "../firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -50,20 +50,21 @@ const Login = () => {
   );
 
   // Step 2 — Authenticate user with Firebase Auth
-  await signInWithEmailAndPassword(auth, email, password);
+  const userCredential = await signInWithEmailAndPassword(auth, email, password);
+  const uid = userCredential.user.uid;
 
-  // Step 3 — Check if hospital exists in Firestore
-  const q = query(collection(db, "hospitals"), where("email", "==", email));
-  const snapshot = await getDocs(q);
+  // Step 3 — Look up this user's linked hospital by UID (set during Hospital Registration)
+  const userRef = doc(db, "users", uid);
+  const userSnap = await getDoc(userRef);
 
-  if (snapshot.empty) {
-    alert("No hospital account found with this email. Please create one.");
-    navigate("/signup");
+  if (!userSnap.exists() || !userSnap.data().hospitalId) {
+    alert("No hospital registered for this account yet. Please complete registration.");
+    navigate("/HospitalRegistration");
     return;
   }
 
   // Step 4 — Fetch hospital ID
-  const hospitalId = snapshot.docs[0].id;
+  const hospitalId = userSnap.data().hospitalId;
   localStorage.setItem("hospitalID", hospitalId);
 
   // Step 5 — Redirect to Dashboard
