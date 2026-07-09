@@ -121,120 +121,81 @@ const ReferralDetails = () => {
   };
 
   const applyResourceAllocation = async () => {
-  const resourcesRequested = referral.resourcesRequested || {};
+    const resourcesRequested = referral.resourcesRequested || {};
 
-  await runTransaction(db, async (transaction) => {
-    const resRef = doc(
-      db,
-      "hospitals",
-      toHospitalId,
-      "resources",
-      "resourceInfo"
-    );
-    const resSnap = await transaction.get(resRef);
-
-    if (!resSnap.exists()) {
-      throw new Error("Receiving hospital has no resource setup.");
-    }
-
-    const data = resSnap.data();
-
-    const bedsReq = resourcesRequested.bed || 0;
-    const icuReq = resourcesRequested.icuBeds || 0;
-    const ventReq = resourcesRequested.ventilator || 0;
-    const oxyReq = resourcesRequested.oxygenCylinders || 0;
-    const ambReq = resourcesRequested.ambulances || 0;
-
-    const bloodReq = resourcesRequested.bloodBank || {};
-
-    const bedsTotal = data.beds.total || 0;
-    const bedsOccupied = data.beds.occupied || 0;
-
-    const icuTotal = data.icuBeds.total || 0;
-    const icuOccupied = data.icuBeds.occupied || 0;
-
-    const ventTotal = data.ventilators.total || 0;
-    const ventOccupied = data.ventilators.occupied || 0;
-
-    const oxyAvailable =
-      typeof data.oxygenCylinders === "number"
-        ? data.oxygenCylinders
-        : data.oxygenCylinders.available || 0;
-
-    const ambActive = data.ambulances.active || 0;
-
-    // ── Validate availability BEFORE writing anything ──────────────────
-    // If any requested amount exceeds what's actually free, abort the
-    // whole transaction instead of silently clamping. Firestore will
-    // discard all pending writes in this transaction when we throw here,
-    // so partial/inconsistent allocations can never be committed.
-    if (bedsOccupied + bedsReq > bedsTotal) {
-      throw new Error(
-        `Not enough beds available (requested ${bedsReq}, free ${bedsTotal - bedsOccupied}).`
+    await runTransaction(db, async (transaction) => {
+      const resRef = doc(
+        db,
+        "hospitals",
+        toHospitalId,
+        "resources",
+        "resourceInfo"
       );
-    }
-    if (icuOccupied + icuReq > icuTotal) {
-      throw new Error(
-        `Not enough ICU beds available (requested ${icuReq}, free ${icuTotal - icuOccupied}).`
-      );
-    }
-    if (ventOccupied + ventReq > ventTotal) {
-      throw new Error(
-        `Not enough ventilators available (requested ${ventReq}, free ${ventTotal - ventOccupied}).`
-      );
-    }
-    if (oxyReq > oxyAvailable) {
-      throw new Error(
-        `Not enough oxygen cylinders available (requested ${oxyReq}, free ${oxyAvailable}).`
-      );
-    }
-    if (ambReq > ambActive) {
-      throw new Error(
-        `Not enough ambulances available (requested ${ambReq}, free ${ambActive}).`
-      );
-    }
-    for (const [group, amount] of Object.entries(bloodReq)) {
-      const current = data.bloodBank[group] || 0;
-      if (amount > current) {
-        throw new Error(
-          `Not enough ${group} blood units available (requested ${amount}, free ${current}).`
-        );
+      const resSnap = await transaction.get(resRef);
+
+      if (!resSnap.exists()) {
+        throw new Error("Receiving hospital has no resource setup.");
       }
-    }
 
-    const bloodUpdated = { ...data.bloodBank };
-    Object.entries(bloodReq).forEach(([group, amount]) => {
-      const current = data.bloodBank[group] || 0;
-      bloodUpdated[group] = current - amount;
-    });
+      const data = resSnap.data();
 
-    transaction.update(resRef, {
-      beds: {
-        total: bedsTotal,
-        occupied: bedsOccupied + bedsReq,
-      },
-      icuBeds: {
-        total: icuTotal,
-        occupied: icuOccupied + icuReq,
-      },
-      ventilators: {
-        total: ventTotal,
-        occupied: ventOccupied + ventReq,
-      },
-      oxygenCylinders:
+      const bedsReq = resourcesRequested.bed || 0;
+      const icuReq = resourcesRequested.icuBeds || 0;
+      const ventReq = resourcesRequested.ventilator || 0;
+      const oxyReq = resourcesRequested.oxygenCylinders || 0;
+      const ambReq = resourcesRequested.ambulances || 0;
+
+      const bloodReq = resourcesRequested.bloodBank || {};
+
+      const bedsTotal = data.beds.total || 0;
+      const bedsOccupied = data.beds.occupied || 0;
+
+      const icuTotal = data.icuBeds.total || 0;
+      const icuOccupied = data.icuBeds.occupied || 0;
+
+      const ventTotal = data.ventilators.total || 0;
+      const ventOccupied = data.ventilators.occupied || 0;
+
+      const oxyAvailable =
         typeof data.oxygenCylinders === "number"
-          ? oxyAvailable - oxyReq
-          : {
-              available: oxyAvailable - oxyReq,
-            },
-      ambulances: {
-        ...data.ambulances,
-        active: ambActive - ambReq,
-      },
-      bloodBank: bloodUpdated,
+          ? data.oxygenCylinders
+          : data.oxygenCylinders.available || 0;
+
+      const ambActive = data.ambulances.active || 0;
+
+      const bloodUpdated = { ...data.bloodBank };
+      Object.entries(bloodReq).forEach(([group, amount]) => {
+        const current = data.bloodBank[group] || 0;
+        bloodUpdated[group] = Math.max(0, current - amount);
+      });
+
+      transaction.update(resRef, {
+        beds: {
+          total: bedsTotal,
+          occupied: Math.min(bedsTotal, bedsOccupied + bedsReq),
+        },
+        icuBeds: {
+          total: icuTotal,
+          occupied: Math.min(icuTotal, icuOccupied + icuReq),
+        },
+        ventilators: {
+          total: ventTotal,
+          occupied: Math.min(ventTotal, ventOccupied + ventReq),
+        },
+        oxygenCylinders:
+          typeof data.oxygenCylinders === "number"
+            ? oxyAvailable - oxyReq
+            : {
+                available: Math.max(0, oxyAvailable - oxyReq),
+              },
+        ambulances: {
+          ...data.ambulances,
+          active: Math.max(0, ambActive - ambReq),
+        },
+        bloodBank: bloodUpdated,
+      });
     });
-  });
-};
+  };
 
   const acceptReferral = async () => {
     setProcessing(true);
